@@ -114,6 +114,8 @@ h1{ font-family:'Fraunces', serif; font-weight:700; font-size:25px; margin:0 0 1
 .chips{ display:flex; gap:7px; flex-wrap:wrap; margin-top:10px; }
 .chip-f{ font-family:'IBM Plex Mono',monospace; font-size:11px; padding:5px 10px; border-radius:20px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; }
 .chip-f.active{ color:#fff; border-color:transparent; }
+.chip-f b{ margin-left:6px; opacity:.55; font-weight:400; }
+.chip-f b:hover{ opacity:1; color:#C0392B; }
 .trow{ display:flex; align-items:center; gap:11px; background:var(--card); border:1px solid var(--line); border-left-width:4px; border-radius:11px; padding:11px 13px; margin-bottom:9px; }
 .trow .tinfo{ flex:1; min-width:0; }
 .trow .tt{ font-family:'Fraunces',serif; font-weight:600; font-size:15px; }
@@ -131,6 +133,15 @@ h1{ font-family:'Fraunces', serif; font-weight:700; font-size:25px; margin:0 0 1
 .hbar{ height:90px; background:var(--line); border-radius:5px; overflow:hidden; display:flex; align-items:flex-end; }
 .hfill{ width:100%; background:linear-gradient(180deg, var(--etude), #3f8a82); border-radius:5px; }
 .hlbl{ font-family:'IBM Plex Mono',monospace; font-size:9px; text-align:center; color:var(--ink-soft); margin-top:4px; }
+.reason-note{ font-size:12px; color:#C0392B; margin-top:6px; }
+.rz-title{ font-size:12.5px; font-weight:600; color:var(--ink-soft); margin:24px 0 10px; }
+.rz-row{ display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+.rz-lbl{ font-size:12.5px; min-width:96px; flex-shrink:0; }
+.rz-bar{ flex:1; height:20px; background:var(--line); border-radius:6px; overflow:hidden; }
+.rz-bar i{ display:block; height:100%; background:linear-gradient(90deg,#C0392B,#B08A3E); }
+.rz-n{ font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--ink-soft); }
+.tasklist-mini{ font-size:13.5px; }
+.tasklist-mini div{ display:flex; justify-content:space-between; gap:10px; padding:6px 0; border-bottom:1px dashed var(--line); }
 
 /* ---------- Bottom nav ---------- */
 .bottomnav{ position:fixed; bottom:0; left:0; right:0; z-index:30; display:flex; background:var(--card); border-top:1px solid var(--line); max-width:720px; margin:0 auto; }
@@ -227,7 +238,7 @@ const DEFAULT_CATS = {
 };
 const CATS = Object.assign({}, JSON.parse(JSON.stringify(DEFAULT_CATS)));
 
-const K={tasks:'todo:tasks', done:'todo:completions', ovr:'todo:overrides', cats:'todo:categories', theme:'todo:theme'};
+const K={tasks:'todo:tasks', done:'todo:completions', ovr:'todo:overrides', cats:'todo:categories', theme:'todo:theme', reasons:'todo:reasons'};
 const Store={
   async loadTasks(){ try{return JSON.parse(localStorage.getItem(K.tasks));}catch(e){return null;} },
   async saveTasks(t){ localStorage.setItem(K.tasks, JSON.stringify(t)); },
@@ -239,6 +250,8 @@ const Store={
   async saveCats(c){ localStorage.setItem(K.cats, JSON.stringify(c)); },
   loadTheme(){ return localStorage.getItem(K.theme); },
   saveTheme(t){ localStorage.setItem(K.theme, t); },
+  async loadReasons(){ try{ const a=JSON.parse(localStorage.getItem(K.reasons)); return Array.isArray(a)?a:[]; }catch(e){ return []; } },
+  async saveReasons(a){ localStorage.setItem(K.reasons, JSON.stringify(a)); },
 };
 
 /* ---------- données par défaut ---------- */
@@ -269,7 +282,10 @@ function seedTasks(){
 let tasks=[], done={}, ovr={};
 let viewDate=new Date();
 let view='day';                 // 'day' | 'tasks' | 'stats'
-let modal=null, resched=null, settingsOpen=false, confirmState=null;
+let modal=null, resched=null, settingsOpen=false, confirmState=null, reasonState=null;
+const REASONS=['Manque de temps','Fatigue','Oubli','Pas motivé','Imprévu','Remis à plus tard'];
+let customReasons=[];   // raisons ajoutées par l'utilisateur
+function allReasons(){ return REASONS.concat(customReasons); }
 let search='', filterCat=null, searchFocus=false;
 let theme='light';
 const GRACE_MIN=120;
@@ -369,10 +385,12 @@ function statusPill(st,task,date){
   if(st==='moved'){ const o=ovr[doneKey(task.id,date)]||{}; return '<span class="pill moved">reporté'+(o.movedTo?' au '+fmtShort(o.movedTo):'')+'</span>'; }
   return '';
 }
-function stateActions(st,task){
-  if(st==='overdue') return `<div class="state-actions"><button data-later="${task.id}">⏳ Plus tard aujourd'hui</button><button data-resched="${task.id}">📅 Reporter</button></div>`;
-  if(st==='later')   return `<div class="state-actions"><button data-resched="${task.id}">📅 Reporter à un autre jour</button></div>`;
-  if(st==='missed')  return `<div class="state-actions"><button data-resched="${task.id}">📅 Rattraper un autre jour</button></div>`;
+function stateActions(st,task,date){
+  const has=(ovr[doneKey(task.id,date)]||{}).reason;
+  const rz=`<button data-reason="${task.id}">💬 ${has?'Modifier la raison':'Noter une raison'}</button>`;
+  if(st==='overdue') return `<div class="state-actions"><button data-later="${task.id}">⏳ Plus tard aujourd'hui</button><button data-resched="${task.id}">📅 Reporter</button>${rz}</div>`;
+  if(st==='later')   return `<div class="state-actions"><button data-resched="${task.id}">📅 Reporter à un autre jour</button>${rz}</div>`;
+  if(st==='missed')  return `<div class="state-actions"><button data-resched="${task.id}">📅 Rattraper un autre jour</button>${rz}</div>`;
   if(st==='moved')   return `<div class="state-actions"><button data-unmove="${task.id}">↩︎ Annuler le report</button></div>`;
   return '';
 }
@@ -402,6 +420,14 @@ function weekPct(){
 }
 function historyDays(n){
   const out=[]; for(let i=n-1;i>=0;i--){ const d=addDays(new Date(),-i); out.push({key:ymd(d), letter:['D','L','M','M','J','V','S'][d.getDay()], pct:dayStats(d).pct}); } return out;
+}
+function reasonStats(){
+  const c={}; Object.keys(ovr).forEach(k=>{ const r=ovr[k].reason; if(r) c[r]=(c[r]||0)+1; });
+  return Object.entries(c).sort((a,b)=>b[1]-a[1]);
+}
+function reasonByTask(){
+  const c={}; Object.keys(ovr).forEach(k=>{ if(!ovr[k].reason) return; const t=tasks.find(x=>x.id===k.split('::')[0]); const n=t?t.title:'(tâche supprimée)'; c[n]=(c[n]||0)+1; });
+  return Object.entries(c).sort((a,b)=>b[1]-a[1]).slice(0,5);
 }
 
 /* =========================================================================
@@ -482,6 +508,8 @@ function taskCard(t){
   const checkbox= st==='moved' ? `<span style="width:20px;flex-shrink:0"></span>`
     : `<input type="checkbox" data-toggle="${t.id}" ${checked?'checked':''} ${partial?'data-partial="1"':''}/>`;
   const noteHtml=t.note?`<div class="task-note">${escapeHtml(t.note)}</div>`:'';
+  const reason=(ovr[doneKey(t.id,viewDate)]||{}).reason;
+  const reasonHtml=reason?`<div class="reason-note">💬 ${escapeHtml(reason)}</div>`:'';
   const subsHtml=(hasSubs&&st!=='moved')?`<div class="subs">${t.subtasks.map(s=>{const sd=!!done[doneKey(s.id,viewDate)];return `<label class="sub ${sd?'done':''}"><input type="checkbox" data-subtoggle="${s.id}" ${sd?'checked':''}> ${escapeHtml(s.label)}</label>`;}).join('')}</div>`:'';
   return `<div class="${cls}" style="border-left-color:${cat.color}">
     ${checkbox}
@@ -489,7 +517,7 @@ function taskCard(t){
       <div class="task-time">${t.time||'—'}${dur}${pill}</div>
       <div class="task-title">${escapeHtml(t.title)}${hasSubs?`<span class="sub-count">${subDone}/${t.subtasks.length}</span>`:''}</div>
       <div class="task-sub"><span class="tag" style="background:${cat.color}">${cat.label}</span><span class="recur">↻ ${recurLabel(t)}</span>${t.makeup?'<span class="makeup-tag">⤷ rattrapage</span>':''}</div>
-      ${noteHtml}${subsHtml}${stateActions(st,t)}
+      ${noteHtml}${reasonHtml}${subsHtml}${stateActions(st,t,viewDate)}
     </div>
     <div class="task-actions"><button class="icon-btn" data-edit="${t.id}">✎</button><button class="icon-btn" data-del="${t.id}">🗑</button></div>
   </div>`;
@@ -525,7 +553,23 @@ function statsView(){
     </div>
     <div class="hist-title">14 derniers jours (clique pour ouvrir)</div><div class="hist">`;
   days.forEach(d=>{ h+=`<div class="hcol" data-jump="${d.key}"><div class="hbar"><div class="hfill" style="height:${d.pct}%"></div></div><div class="hlbl">${d.letter}</div></div>`; });
-  return h+`</div></div>`;
+  h+=`</div>`;
+
+  const rz=reasonStats();
+  if(rz.length){
+    const max=rz[0][1];
+    h+=`<div class="rz-title">Pourquoi je bloque (raisons notées)</div>`;
+    rz.forEach(([r,n])=>{ h+=`<div class="rz-row"><span class="rz-lbl">${escapeHtml(r)}</span><span class="rz-bar"><i style="width:${Math.round(n/max*100)}%"></i></span><span class="rz-n">${n}</span></div>`; });
+    const bt=reasonByTask();
+    if(bt.length){
+      h+=`<div class="rz-title">Tâches les plus concernées</div><div class="tasklist-mini">`;
+      bt.forEach(([n,c])=>{ h+=`<div><span>${escapeHtml(n)}</span><span class="rz-n">${c}×</span></div>`; });
+      h+=`</div>`;
+    }
+  } else {
+    h+=`<div class="rz-title">Raisons</div><div class="set-hint" style="margin-top:0">Quand une tâche est en retard ou manquée, note une raison (bouton 💬) — les tendances apparaîtront ici.</div>`;
+  }
+  return h+`</div>`;
 }
 
 function bottomNav(){
@@ -552,6 +596,7 @@ function wire(){
   $('[data-later]').forEach(b=>b.addEventListener('click', async ()=>{ const k=doneKey(b.getAttribute('data-later'),viewDate); ovr[k]=Object.assign({},ovr[k],{snoozed:true}); await Store.saveOvr(ovr); toast('Repoussée à plus tard'); render(); }));
   $('[data-resched]').forEach(b=>b.addEventListener('click',()=>{ resched={taskId:b.getAttribute('data-resched'), date:new Date(viewDate)}; render(); }));
   $('[data-unmove]').forEach(b=>b.addEventListener('click',()=>unmove(b.getAttribute('data-unmove'))));
+  $('[data-reason]').forEach(b=>b.addEventListener('click',()=>{ reasonState={taskId:b.getAttribute('data-reason'), date:new Date(viewDate)}; render(); }));
 
   const sb=document.getElementById('searchBox');
   if(sb){ sb.addEventListener('focus',()=>searchFocus=true); sb.addEventListener('blur',()=>searchFocus=false);
@@ -580,6 +625,7 @@ async function unmove(id){
 function renderOverlays(){
   const root=document.getElementById('modal-root');
   if(confirmState) return renderConfirm(root);
+  if(reasonState) return renderReason(root);
   if(resched) return renderResched(root);
   if(settingsOpen) return renderSettings(root);
   if(modal) return renderModal(root);
@@ -596,6 +642,50 @@ function renderConfirm(root){
   root.querySelector('#c-yes').addEventListener('click',()=>done(true));
   root.querySelector('#c-no').addEventListener('click',()=>done(false));
   root.querySelector('#c-ov').addEventListener('click',e=>{ if(e.target.id==='c-ov') done(false); });
+}
+
+/* ---------- raison (retard / manqué) ---------- */
+function renderReason(root){
+  const t=tasks.find(x=>x.id===reasonState.taskId); if(!t){ reasonState=null; root.innerHTML=''; return; }
+  const cur=(ovr[doneKey(t.id, reasonState.date)]||{}).reason||'';
+  const chip=(r,custom)=>`<span class="chip-f ${cur===r?'active':''}" data-rz="${escapeAttr(r)}" ${cur===r?'style="background:#C0392B"':''}>${escapeHtml(r)}${custom?` <b data-rzdel="${escapeAttr(r)}" title="Retirer cette raison">✕</b>`:''}</span>`;
+  const chips=REASONS.map(r=>chip(r,false)).join('')+customReasons.map(r=>chip(r,true)).join('');
+  root.innerHTML=`<div class="overlay" id="z-ov"><div class="modal">
+    <h2>Pourquoi « ${escapeHtml(t.title)} » ?</h2>
+    <p style="font-size:13px;color:var(--ink-soft);margin:0 0 14px">Note la raison — tu retrouveras les tendances dans l'onglet Stats.</p>
+    <div class="chips" style="margin-bottom:14px">${chips}</div>
+    <div class="field"><label for="z-txt">Ajouter une raison (sera mémorisée)</label><input type="text" id="z-txt" placeholder="Ex. réunion qui a débordé" value="${escapeAttr(cur && !allReasons().includes(cur)?cur:'')}"></div>
+    <div class="modal-actions">
+      ${cur?'<button class="btn btn-danger" id="z-clear">Retirer</button>':''}
+      <button class="btn btn-ghost" id="z-cancel">Annuler</button>
+      <button class="btn btn-primary" id="z-save">Enregistrer</button>
+    </div>
+  </div></div>`;
+  root.querySelector('#z-ov').addEventListener('click',e=>{ if(e.target.id==='z-ov'){ reasonState=null; renderOverlays(); }});
+  root.querySelector('#z-cancel').addEventListener('click',()=>{ reasonState=null; renderOverlays(); });
+  root.querySelectorAll('[data-rz]').forEach(c=>c.addEventListener('click',e=>{
+    const del=e.target.getAttribute('data-rzdel');
+    if(del){ e.stopPropagation(); delReason(del); return; }
+    setReason(c.getAttribute('data-rz'));
+  }));
+  root.querySelector('#z-save').addEventListener('click',()=>setReason(root.querySelector('#z-txt').value.trim()));
+  const zc=root.querySelector('#z-clear'); if(zc) zc.addEventListener('click',()=>setReason(''));
+}
+async function setReason(val){
+  const t=tasks.find(x=>x.id===reasonState.taskId); if(!t){ reasonState=null; return; }
+  const key=doneKey(t.id, reasonState.date);
+  if(val){
+    if(!allReasons().includes(val)){ customReasons.push(val); await Store.saveReasons(customReasons); }
+    ovr[key]=Object.assign({},ovr[key],{reason:val});
+  }
+  else if(ovr[key]){ delete ovr[key].reason; if(!Object.keys(ovr[key]).length) delete ovr[key]; }
+  await Store.saveOvr(ovr);
+  reasonState=null; toast(val?'Raison notée':'Raison retirée'); render();
+}
+async function delReason(r){
+  customReasons=customReasons.filter(x=>x!==r);
+  await Store.saveReasons(customReasons);
+  toast('Raison retirée de la liste'); renderOverlays();
 }
 
 /* ---------- report / rattrapage ---------- */
@@ -777,7 +867,7 @@ async function onSave(){
 
 /* ---------- sauvegarde ---------- */
 function exportData(){
-  const data={version:2, exportedAt:new Date().toISOString(), tasks, done, ovr, cats:customCatsObj(), theme};
+  const data={version:2, exportedAt:new Date().toISOString(), tasks, done, ovr, cats:customCatsObj(), reasons:customReasons, theme};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a'); a.href=url; a.download='ma-routine-'+ymd(new Date())+'.json'; a.click();
@@ -792,8 +882,9 @@ async function importData(file){
   tasks=d.tasks; done=d.done||{}; ovr=d.ovr||{};
   Object.keys(CATS).forEach(k=>{ if(CATS[k].custom) delete CATS[k]; });
   Object.assign(CATS, d.cats||{});
+  customReasons = Array.isArray(d.reasons)?d.reasons:[];
   if(d.theme) theme=d.theme;
-  await Store.saveTasks(tasks); await Store.saveDone(done); await Store.saveOvr(ovr); await Store.saveCats(customCatsObj()); Store.saveTheme(theme);
+  await Store.saveTasks(tasks); await Store.saveDone(done); await Store.saveOvr(ovr); await Store.saveCats(customCatsObj()); await Store.saveReasons(customReasons); Store.saveTheme(theme);
   toast('Sauvegarde importée'); render();
 }
 
@@ -818,6 +909,7 @@ async function init(){
   if(!stored || !Array.isArray(stored) || stored.length===0){ stored=seedTasks(); await Store.saveTasks(stored); }
   tasks=stored; done=await Store.loadDone(); ovr=await Store.loadOvr();
   Object.assign(CATS, await Store.loadCats());
+  customReasons = await Store.loadReasons();
   render();
   setInterval(()=>{ if(view==='day' && sameDay(viewDate,new Date())) render(); }, 60000);
 }
