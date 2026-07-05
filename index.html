@@ -80,6 +80,9 @@ h1{ font-family:'Fraunces', serif; font-weight:700; font-size:25px; margin:0 0 1
 .now-line .dot{ width:10px; height:10px; border-radius:50%; background:var(--sport); flex-shrink:0; }
 .now-line .ln{ flex:1; height:2px; background:var(--sport); opacity:.55; }
 .now-line .tm{ font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--sport); text-transform:uppercase; letter-spacing:.06em; }
+.free-line{ display:flex; align-items:center; gap:8px; margin:2px 6px 12px; opacity:.75; }
+.free-line .ln{ flex:1; height:0; border-top:1px dashed var(--line); }
+.free-line .tm{ font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--ink-soft); white-space:nowrap; }
 
 .task{ display:flex; align-items:flex-start; gap:11px; background:var(--card); border:1px solid var(--line); border-left-width:4px; border-radius:12px; padding:12px 14px; margin-bottom:10px; position:relative; }
 .task.current{ box-shadow:var(--now-glow); }
@@ -136,6 +139,7 @@ h1{ font-family:'Fraunces', serif; font-weight:700; font-size:25px; margin:0 0 1
 .hlbl{ font-family:'IBM Plex Mono',monospace; font-size:9px; text-align:center; color:var(--ink-soft); margin-top:4px; }
 .reason-note{ font-size:12px; color:#C0392B; margin-top:6px; }
 .rz-title{ font-size:12.5px; font-weight:600; color:var(--ink-soft); margin:24px 0 10px; }
+.rz-sub{ font-size:12px; font-weight:600; margin:14px 0 8px; }
 .rz-row{ display:flex; align-items:center; gap:10px; margin-bottom:8px; }
 .rz-lbl{ font-size:12.5px; min-width:96px; flex-shrink:0; }
 .rz-bar{ flex:1; height:20px; background:var(--line); border-radius:6px; overflow:hidden; }
@@ -237,7 +241,7 @@ const SUPA_KEY = 'sb_publishable_1ELTd8K9RUhkUl1TALf4YA_DPhZOw9N';
 
 const DEFAULT_CATS = {
   ibadat:{label:'Ibadat',color:'#4A4470'}, sommeil:{label:'Sommeil',color:'#1F2A44'},
-  travail:{label:'Stage',color:'#56626F'}, sport:{label:'Sport',color:'#B5502F'},
+  travail:{label:'Travail',color:'#56626F'}, sport:{label:'Sport',color:'#B5502F'},
   nutrition:{label:'Nutrition',color:'#A9862F'}, etude:{label:'Étude',color:'#2F6E68'},
   autre:{label:'Autre',color:'#5B5650'},
 };
@@ -262,24 +266,31 @@ const Store={
 /* ---------- données par défaut ---------- */
 function uid(){ return crypto.randomUUID ? crypto.randomUUID() : 't'+Date.now()+Math.random().toString(16).slice(2); }
 function seedTasks(){
-  const D=(title,cat,time,extra)=>Object.assign({id:uid(),title,category:cat,time,duration:null,recurrence:{type:'daily'},note:null,subtasks:[]},extra||{});
-  const W=(title,cat,time)=>({id:uid(),title,category:cat,time,duration:null,recurrence:{type:'weekly',weekdays:[1,2,3,4,5]},note:null,subtasks:[]});
+  // Journée type générique + démonstration des fonctions (récurrences variées, sous-tâches, notes, durées).
+  const mk=(o)=>Object.assign({id:uid(), title:'', category:'autre', time:null, end:null, duration:null, recurrence:{type:'daily'}, note:null, subtasks:[]}, o);
+  const today=ymd(new Date());
   return [
-    D('Réveil & Fajr','ibadat','04:00'),
-    D('Course à pied ~25-30 min','sport','04:30'),
-    D('2e bloc de sommeil','sommeil','05:30'),
-    D('Petit-déjeuner','nutrition','07:15'),
-    D('Préparation & trajet','etude','07:45'),
-    W('Stage — matinée','travail','09:00'),
-    D('Déjeuner & Dohr','nutrition','13:00'),
-    W('Stage — après-midi','travail','14:00'),
-    D('Collation pré-training','nutrition','17:30'),
-    D('Musculation','sport','18:00',{note:'Progression : borne haute sur toutes les séries → +2,5 kg la fois suivante.',
-      subtasks:[{id:uid(),label:'Échauffement 5-10 min'},{id:uid(),label:'Exercices principaux'},{id:uid(),label:'Étirements / retour au calme'}]}),
-    D('Douche','sommeil','19:30'),
-    D('Dîner & Maghreb','nutrition','20:00'),
-    D('Étude, Icha & Qiyam','etude','20:30'),
-    D('Coucher','sommeil','22:00'),
+    mk({title:'Réveil & étirements', category:'autre', time:'07:00', end:'07:15'}),
+    mk({title:'Petit-déjeuner', category:'nutrition', time:'07:30', end:'08:00'}),
+    mk({title:'Sport', category:'sport', time:'08:00', end:'08:45',
+        recurrence:{type:'weekly', weekdays:[1,3,5]},               // certains jours : lun / mer / ven
+        note:'Adapte l’intensité selon ta forme du jour.'}),
+    mk({title:'Travail / cours', category:'travail', time:'09:00', end:'12:00',
+        recurrence:{type:'weekly', weekdays:[1,2,3,4,5]}}),          // en semaine
+    mk({title:'Déjeuner', category:'nutrition', time:'12:30', end:'13:15'}),
+    mk({title:'Lecture / apprentissage', category:'etude', time:'18:00', end:'18:30',
+        note:'20 minutes par jour suffisent pour progresser.'}),
+    mk({title:'Courses de la semaine', category:'nutrition', time:'11:00', end:'12:00',
+        recurrence:{type:'weekly', weekdays:[6]}}),                  // le samedi
+    mk({title:'Grand ménage', category:'autre', time:'10:00', end:'11:00',
+        recurrence:{type:'weekly', weekdays:[0], interval:2, anchor:today}}), // 1 dimanche sur 2
+    mk({title:'Budget & factures', category:'autre', time:'09:00', end:'09:30',
+        recurrence:{type:'monthly', monthDay:1}}),                   // le 1er de chaque mois
+    mk({title:'Appeler la famille', category:'autre', time:'19:00', end:'19:20',
+        recurrence:{type:'daily', interval:3, anchor:today}}),       // tous les 3 jours
+    mk({title:'Routine du soir', category:'sommeil', time:'22:00', end:'22:30',
+        subtasks:[{id:uid(),label:'Préparer les affaires de demain'},{id:uid(),label:'Éteindre les écrans'},{id:uid(),label:'Lire 10 min'}]}),
+    mk({title:'Coucher', category:'sommeil', time:'23:00'}),
   ];
 }
 
@@ -308,6 +319,12 @@ function daysInMonth(d){ return new Date(d.getFullYear(), d.getMonth()+1, 0).get
 function startOfWeek(d){ const x=stripT(d); return x - new Date(x).getDay()*864e5; }
 function fmtShort(s){ const p=s.split('-'); return (+p[2])+' '+MONTHS[(+p[1])-1]; }
 function catOf(k){ return CATS[k]||CATS.autre; }
+/* ---------- temps (début / fin / durée) ---------- */
+function toMins(hhmm){ if(!hhmm) return null; const p=hhmm.split(':'); return (+p[0])*60+(+p[1]); }
+function fmtHM(m){ return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0'); }
+function startM(t){ return toMins(t.time); }
+function endM(t){ if(t.end) return toMins(t.end); if(t.time!=null && t.duration) return toMins(t.time)+t.duration; return null; }
+function fmtDur(mins){ const h=Math.floor(mins/60), m=mins%60; return (h?h+' h':'')+((h&&m)?' ':'')+(m?m+' min':(h?'':'0 min')); }
 
 /* ---------- récurrence ---------- */
 function occursOn(task,date){
@@ -374,8 +391,7 @@ function getStatus(task,date){
   const today=new Date();
   if(ymd(date)<ymd(today)) return 'missed';
   if(sameDay(date,today) && task.time){
-    const [hh,mm]=task.time.split(':').map(Number);
-    const start=hh*60+mm, end=start+(task.duration||30);
+    const start=startM(task); const end=(endM(task)!=null?endM(task):start+30);
     const now=today.getHours()*60+today.getMinutes();
     if(now>=start && now<end) return 'current';
     if(now>=end+GRACE_MIN) return o.snoozed?'later':'overdue';
@@ -434,6 +450,22 @@ function reasonByTask(){
   const c={}; Object.keys(ovr).forEach(k=>{ if(!ovr[k].reason) return; const t=tasks.find(x=>x.id===k.split('::')[0]); const n=t?t.title:'(tâche supprimée)'; c[n]=(c[n]||0)+1; });
   return Object.entries(c).sort((a,b)=>b[1]-a[1]).slice(0,5);
 }
+/* Discipline par tâche sur les N derniers jours (hors aujourd'hui) */
+function perTaskStats(days){
+  const out=[];
+  tasks.filter(t=>!t.makeup).forEach(t=>{
+    let occ=0,dn=0,friction=0;
+    for(let i=days;i>=1;i--){
+      const d=addDays(new Date(),-i);
+      if(!occursOn(t,d)) continue;
+      occ++;
+      if(taskDone(t,d)) dn++;
+      const o=ovr[doneKey(t.id,d)]; if(o && (o.snoozed||o.movedTo||o.reason)) friction++;
+    }
+    if(occ>0) out.push({id:t.id, title:t.title, occ, done:dn, missed:occ-dn, friction, rate:Math.round(dn/occ*100)});
+  });
+  return out;
+}
 
 /* =========================================================================
    RENDU
@@ -477,19 +509,21 @@ function dayView(){
   if(dayTasks.length===0){
     h+=`<div class="empty"><div class="big">🗒️</div>Aucune tâche ce jour-là.<br>Appuie sur « Ajouter » pour en créer une.</div>`;
   } else {
-    const now=new Date(); const nowMins=now.getHours()*60+now.getMinutes(); let nowPlaced=false;
+    const now=new Date(); const nowMins=now.getHours()*60+now.getMinutes(); let nowPlaced=false; let prevEnd=null;
     dayTasks.forEach(t=>{
-      if(isToday && !nowPlaced){
-        const start=t.time?(+t.time.split(':')[0]*60+ +t.time.split(':')[1]):1e9;
-        if(start>nowMins){ h+=nowLine(now); nowPlaced=true; }
-      }
+      const s=startM(t);
+      if(prevEnd!=null && s!=null && s-prevEnd>=15){ h+=freeLine(s-prevEnd); }   // temps libre entre 2 tâches
+      if(isToday && !nowPlaced && s!=null && s>nowMins){ h+=nowLine(now); nowPlaced=true; }
       h+=taskCard(t);
+      const e=endM(t);
+      prevEnd = (e!=null) ? Math.max(prevEnd||0,e) : (s!=null ? Math.max(prevEnd||0,s) : prevEnd);
     });
     if(isToday && !nowPlaced) h+=nowLine(new Date());
   }
   return h+`</div>`;
 }
 function nowLine(now){ return `<div class="now-line"><span class="dot"></span><span class="tm">maintenant ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}</span><span class="ln"></span></div>`; }
+function freeLine(gap){ return `<div class="free-line"><span class="ln"></span><span class="tm">⏳ ${fmtDur(gap)} de libre</span><span class="ln"></span></div>`; }
 
 function weekStrip(){
   let h='<div class="weekstrip">'; let d=new Date(startOfWeek(viewDate));
@@ -504,7 +538,8 @@ function taskCard(t){
   const cat=catOf(t.category);
   const st=getStatus(t,viewDate);
   const checked=st==='done';
-  const dur=t.duration?` · ${t.duration} min`:'';
+  const em=endM(t);
+  const timeLabel = t.time ? (em!=null ? `${t.time} – ${fmtHM(em)}` : t.time) : '—';
   const pill=statusPill(st,t,viewDate);
   const cls=['task', checked?'done':'', st==='current'?'current':'', st==='overdue'?'overdue':'', st==='missed'?'missed':'', st==='moved'?'moved':''].join(' ').trim();
   const hasSubs=t.subtasks&&t.subtasks.length;
@@ -519,7 +554,7 @@ function taskCard(t){
   return `<div class="${cls}" style="border-left-color:${cat.color}">
     ${checkbox}
     <div class="task-main">
-      <div class="task-time">${t.time||'—'}${dur}${pill}</div>
+      <div class="task-time">${timeLabel}${pill}</div>
       <div class="task-title">${escapeHtml(t.title)}${hasSubs?`<span class="sub-count">${subDone}/${t.subtasks.length}</span>`:''}</div>
       <div class="task-sub"><span class="tag" style="background:${cat.color}">${cat.label}</span><span class="recur">↻ ${recurLabel(t)}</span>${t.makeup?'<span class="makeup-tag">⤷ rattrapage</span>':''}</div>
       ${noteHtml}${reasonHtml}${subsHtml}${stateActions(st,t,viewDate)}
@@ -548,6 +583,9 @@ function tasksView(){
   return h+`</div>`;
 }
 
+function taskRateRow(r,color){
+  return `<div class="rz-row"><span class="rz-lbl">${escapeHtml(r.title)}</span><span class="rz-bar"><i style="width:${r.rate}%;background:${color}"></i></span><span class="rz-n">${r.rate}% · ${r.done}/${r.occ}</span></div>`;
+}
 function statsView(){
   const streak=computeStreak(), best=bestStreak(180), wk=weekPct(), days=historyDays(14);
   let h=`<div class="header"><div class="eyebrow">Progression</div><h1>Mes stats</h1></div><div class="stats">
@@ -559,6 +597,23 @@ function statsView(){
     <div class="hist-title">14 derniers jours (clique pour ouvrir)</div><div class="hist">`;
   days.forEach(d=>{ h+=`<div class="hcol" data-jump="${d.key}"><div class="hbar"><div class="hfill" style="height:${d.pct}%"></div></div><div class="hlbl">${d.letter}</div></div>`; });
   h+=`</div>`;
+
+  // ----- Discipline par tâche (30 derniers jours) -----
+  const per=perTaskStats(30).filter(r=>r.occ>=2);
+  if(per.length){
+    const totOcc=per.reduce((a,r)=>a+r.occ,0), totDone=per.reduce((a,r)=>a+r.done,0);
+    const overall=totOcc?Math.round(totDone/totOcc*100):0;
+    h+=`<div class="rz-title">Discipline par tâche <span style="font-weight:400;color:var(--ink-soft)">· 30 derniers jours · ${overall}% global</span></div>`;
+    const strong=per.filter(r=>r.rate>=70).sort((a,b)=>b.rate-a.rate||b.occ-a.occ).slice(0,5);
+    const weak=per.filter(r=>r.missed>0).sort((a,b)=>a.rate-b.rate||b.missed-a.missed).slice(0,5);
+    const late=per.filter(r=>r.friction>=2).sort((a,b)=>b.friction-a.friction).slice(0,5);
+    if(strong.length){ h+=`<div class="rz-sub">💪 Les mieux tenues</div>`; strong.forEach(r=>h+=taskRateRow(r,'#2F6E68')); }
+    if(weak.length){ h+=`<div class="rz-sub">⚠️ Les plus manquées</div>`; weak.forEach(r=>h+=taskRateRow(r,'#C0392B')); }
+    if(late.length){ h+=`<div class="rz-sub">⏰ Souvent en retard / reportées</div>`;
+      late.forEach(r=>h+=`<div class="rz-row"><span class="rz-lbl">${escapeHtml(r.title)}</span><span class="rz-bar"><i style="width:${Math.round(r.friction/late[0].friction*100)}%;background:#B08A3E"></i></span><span class="rz-n">${r.friction}×</span></div>`); }
+  } else {
+    h+=`<div class="rz-title">Discipline par tâche</div><div class="set-hint" style="margin-top:0">Reviens dans quelques jours : dès que tu auras un peu d'historique, tu verras ici quelles tâches tu tiens bien et lesquelles te posent problème.</div>`;
+  }
 
   const rz=reasonStats();
   if(rz.length){
@@ -796,8 +851,8 @@ function renderModal(root){
       <div id="newCatPanel" class="nc-panel hidden"><input type="text" id="nc-name" placeholder="Nom (ex. Perso)"><input type="color" id="nc-color" value="#7A6FB0"><button type="button" class="btn-mini" id="nc-add">Ajouter</button></div>
     </div>
     <div class="row2">
-      <div class="field"><label for="f-time">Heure</label><input type="time" id="f-time" value="${editing&&t.time?t.time:''}"></div>
-      <div class="field"><label for="f-dur">Durée (min)</label><input type="number" id="f-dur" min="0" step="5" placeholder="—" value="${editing&&t.duration?t.duration:''}"></div>
+      <div class="field"><label for="f-time">Heure de début</label><input type="time" id="f-time" value="${editing&&t.time?t.time:''}"></div>
+      <div class="field"><label for="f-end">Heure de fin</label><input type="time" id="f-end" value="${editing?(t.end?t.end:(t.time&&t.duration?fmtHM(toMins(t.time)+t.duration):'')):''}"></div>
     </div>
 
     <div class="field"><label>Répétition</label>
@@ -861,7 +916,8 @@ async function onSave(){
   const title=g('f-title').value.trim(); if(!title){ toast('Donne un intitulé.'); return; }
   const category=g('f-cat').value;
   const time=g('f-time').value||null;
-  const durRaw=g('f-dur').value; const duration=durRaw?parseInt(durRaw,10):null;
+  let end=g('f-end').value||null;
+  if(end && time && toMins(end)<=toMins(time)) end=null;   // fin invalide ignorée
   const type=document.querySelector('input[name=recur]:checked').value;
   const recurrence={type};
   const editing=!!modal.task; const old=editing?(modal.task.recurrence||{}):{};
@@ -873,8 +929,8 @@ async function onSave(){
   const note=g('f-note').value.trim()||null;
   const subtasks=[...document.querySelectorAll('#subList .sub-row')].map(row=>{ const label=row.querySelector('.sub-input').value.trim(); return label?{id:row.getAttribute('data-subid')||uid(),label}:null; }).filter(Boolean);
 
-  if(editing) Object.assign(modal.task,{title,category,time,duration,recurrence,note,subtasks});
-  else tasks.push({id:uid(),title,category,time,duration,recurrence,note,subtasks});
+  if(editing) Object.assign(modal.task,{title,category,time,end,duration:null,recurrence,note,subtasks});
+  else tasks.push({id:uid(),title,category,time,end,duration:null,recurrence,note,subtasks});
   await Store.saveTasks(tasks); modal=null; toast(editing?'Modifiée':'Ajoutée'); render();
 }
 
