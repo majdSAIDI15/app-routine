@@ -12,6 +12,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Ma routine">
+<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 <div id="app"></div>
@@ -230,6 +231,10 @@ h1{ font-family:'Fraunces', serif; font-weight:700; font-size:25px; margin:0 0 1
    Stockage local (localStorage). Couche "Store" isolée pour Supabase (étape 5).
    ========================================================================= */
 
+/* --- Config Supabase (clé publishable = sûre côté navigateur avec RLS) --- */
+const SUPA_URL = 'https://jtpizwmqptdmodpnfudy.supabase.co';
+const SUPA_KEY = 'sb_publishable_1ELTd8K9RUhkUl1TALf4YA_DPhZOw9N';
+
 const DEFAULT_CATS = {
   ibadat:{label:'Ibadat',color:'#4A4470'}, sommeil:{label:'Sommeil',color:'#1F2A44'},
   travail:{label:'Stage',color:'#56626F'}, sport:{label:'Sport',color:'#B5502F'},
@@ -241,17 +246,17 @@ const CATS = Object.assign({}, JSON.parse(JSON.stringify(DEFAULT_CATS)));
 const K={tasks:'todo:tasks', done:'todo:completions', ovr:'todo:overrides', cats:'todo:categories', theme:'todo:theme', reasons:'todo:reasons'};
 const Store={
   async loadTasks(){ try{return JSON.parse(localStorage.getItem(K.tasks));}catch(e){return null;} },
-  async saveTasks(t){ localStorage.setItem(K.tasks, JSON.stringify(t)); },
+  async saveTasks(t){ localStorage.setItem(K.tasks, JSON.stringify(t)); scheduleSync(); },
   async loadDone(){ try{return JSON.parse(localStorage.getItem(K.done))||{};}catch(e){return {};} },
-  async saveDone(d){ localStorage.setItem(K.done, JSON.stringify(d)); },
+  async saveDone(d){ localStorage.setItem(K.done, JSON.stringify(d)); scheduleSync(); },
   async loadOvr(){ try{return JSON.parse(localStorage.getItem(K.ovr))||{};}catch(e){return {};} },
-  async saveOvr(o){ localStorage.setItem(K.ovr, JSON.stringify(o)); },
+  async saveOvr(o){ localStorage.setItem(K.ovr, JSON.stringify(o)); scheduleSync(); },
   async loadCats(){ try{return JSON.parse(localStorage.getItem(K.cats))||{};}catch(e){return {};} },
-  async saveCats(c){ localStorage.setItem(K.cats, JSON.stringify(c)); },
+  async saveCats(c){ localStorage.setItem(K.cats, JSON.stringify(c)); scheduleSync(); },
   loadTheme(){ return localStorage.getItem(K.theme); },
   saveTheme(t){ localStorage.setItem(K.theme, t); },
   async loadReasons(){ try{ const a=JSON.parse(localStorage.getItem(K.reasons)); return Array.isArray(a)?a:[]; }catch(e){ return []; } },
-  async saveReasons(a){ localStorage.setItem(K.reasons, JSON.stringify(a)); },
+  async saveReasons(a){ localStorage.setItem(K.reasons, JSON.stringify(a)); scheduleSync(); },
 };
 
 /* ---------- données par défaut ---------- */
@@ -724,8 +729,13 @@ function renderSettings(root){
       <input type="color" data-ccolor="${k}" value="${CATS[k].color}">
       <input type="text" data-cname="${k}" value="${escapeAttr(CATS[k].label)}">
       <button class="mini" data-csave="${k}">✓</button><button class="mini del" data-cdel="${k}">🗑</button></div>`).join('');
+  let accountHtml;
+  if(!Cloud.available) accountHtml='<div class="set-hint">Synchronisation indisponible (hors-ligne, ou service pas encore chargé — réessaie dans un instant).</div>';
+  else if(Cloud.user) accountHtml=`<div class="switch-row"><span>Connecté<br><small style="color:var(--ink-soft)">${escapeHtml(Cloud.user.email||'')}</small></span><button class="mini" id="cl-signout">Se déconnecter</button></div><div class="set-hint">Tes données se synchronisent automatiquement sur tous tes appareils.</div>`;
+  else accountHtml=`<input class="searchbox" id="cl-email" type="email" placeholder="Email" autocomplete="email" style="margin-bottom:8px"><input class="searchbox" id="cl-pass" type="password" placeholder="Mot de passe (6+)" autocomplete="current-password" style="margin-bottom:10px"><div class="set-actions"><button class="mini" id="cl-signin">Se connecter</button><button class="mini" id="cl-signup">Créer un compte</button></div><div class="set-hint">Connecte-toi pour synchroniser tél ↔ PC. Chaque personne a son espace privé.</div>`;
   root.innerHTML=`<div class="overlay" id="s-ov"><div class="modal">
     <h2>Réglages</h2>
+    <div class="set-section"><h3>Compte &amp; synchro</h3>${accountHtml}</div>
     <div class="set-section"><h3>Apparence</h3>
       <div class="switch-row"><span>Mode sombre</span><div class="switch ${theme==='dark'?'on':''}" id="themeSwitch"><i></i></div></div>
     </div>
@@ -750,6 +760,9 @@ function renderSettings(root){
   root.querySelector('#importBtn').addEventListener('click',()=>root.querySelector('#importFile').click());
   root.querySelector('#importFile').addEventListener('change',e=>{ if(e.target.files[0]) importData(e.target.files[0]); });
   const ib=root.querySelector('#installBtn'); if(ib) ib.addEventListener('click', async ()=>{ const p=window.__deferredPrompt; if(!p) return; p.prompt(); await p.userChoice; window.__deferredPrompt=null; render(); });
+  const so=root.querySelector('#cl-signout'); if(so) so.addEventListener('click', doSignOut);
+  const si=root.querySelector('#cl-signin'); if(si) si.addEventListener('click',()=>doSignIn(root.querySelector('#cl-email').value.trim(), root.querySelector('#cl-pass').value));
+  const su=root.querySelector('#cl-signup'); if(su) su.addEventListener('click',()=>doSignUp(root.querySelector('#cl-email').value.trim(), root.querySelector('#cl-pass').value));
   root.querySelector('#themeSwitch').addEventListener('click',()=>{ theme=theme==='dark'?'light':'dark'; Store.saveTheme(theme); render(); });
   root.querySelector('#nc-add2').addEventListener('click',async ()=>{
     const name=root.querySelector('#nc-name2').value.trim(); const color=root.querySelector('#nc-color2').value;
@@ -902,6 +915,56 @@ function customCatsObj(){ const o={}; Object.keys(CATS).forEach(k=>{ if(CATS[k].
 function escapeHtml(s){ return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 function escapeAttr(s){ return (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 
+/* =========================================================================
+   SYNCHRONISATION CLOUD (Supabase) — optionnelle ; le mode local reste intact.
+   Modèle simple : une ligne app_state par utilisateur = tout l'état en JSON.
+   ========================================================================= */
+const Cloud={ client:null, user:null, available:false };
+let applyingRemote=false, syncTimer=null;
+
+function initCloud(){
+  if(Cloud.client || !window.supabase || !SUPA_URL || !SUPA_KEY) return;
+  try{ Cloud.client=window.supabase.createClient(SUPA_URL, SUPA_KEY); Cloud.available=true; }catch(e){}
+}
+function stateBlob(){ return {tasks, done, ovr, cats:customCatsObj(), reasons:customReasons}; }
+function scheduleSync(){ if(typeof Cloud==='undefined' || !Cloud.user || applyingRemote) return; clearTimeout(syncTimer); syncTimer=setTimeout(pushCloud,700); }
+async function pushCloud(){ if(!Cloud.user) return; try{ await Cloud.client.from('app_state').upsert({user_id:Cloud.user.id, data:stateBlob(), updated_at:new Date().toISOString()}); }catch(e){} }
+async function pullCloud(){ if(!Cloud.user) return null; try{ const {data,error}=await Cloud.client.from('app_state').select('data').eq('user_id',Cloud.user.id).maybeSingle(); if(error) return null; return data?data.data:null; }catch(e){ return null; } }
+function applyRemote(d){
+  if(!d) return;
+  applyingRemote=true;
+  if(Array.isArray(d.tasks)) tasks=d.tasks;
+  done=d.done||{}; ovr=d.ovr||{};
+  Object.keys(CATS).forEach(k=>{ if(CATS[k].custom) delete CATS[k]; });
+  Object.assign(CATS, d.cats||{});
+  customReasons=Array.isArray(d.reasons)?d.reasons:[];
+  Store.saveTasks(tasks); Store.saveDone(done); Store.saveOvr(ovr); Store.saveCats(customCatsObj()); Store.saveReasons(customReasons);
+  applyingRemote=false;
+  render();
+}
+async function onLoggedIn(user){
+  Cloud.user=user;
+  const remote=await pullCloud();
+  if(remote && Array.isArray(remote.tasks) && remote.tasks.length){ applyRemote(remote); toast('Données synchronisées'); }
+  else { await pushCloud(); render(); }
+}
+async function doSignIn(email,pw){
+  if(!email||!pw){ toast('Email et mot de passe requis'); return; }
+  const {data,error}=await Cloud.client.auth.signInWithPassword({email,password:pw});
+  if(error){ toast('Connexion : '+error.message); return; }
+  await onLoggedIn(data.user); toast('Connecté ✓');
+}
+async function doSignUp(email,pw){
+  if(!email||!pw){ toast('Email et mot de passe requis'); return; }
+  if(pw.length<6){ toast('Mot de passe : 6 caractères minimum'); return; }
+  const {data,error}=await Cloud.client.auth.signUp({email,password:pw});
+  if(error){ toast('Inscription : '+error.message); return; }
+  if(data.session){ await onLoggedIn(data.user); toast('Compte créé ✓'); }
+  else toast('Compte créé — confirme via l\'email reçu, puis connecte-toi');
+}
+async function doSignOut(){ try{ await Cloud.client.auth.signOut(); }catch(e){} Cloud.user=null; toast('Déconnecté'); render(); }
+async function resumeSession(){ try{ const {data}=await Cloud.client.auth.getSession(); if(data&&data.session){ await onLoggedIn(data.session.user); } else render(); }catch(e){ render(); } }
+
 /* ---------- init ---------- */
 async function init(){
   theme = Store.loadTheme() || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark':'light');
@@ -914,6 +977,15 @@ async function init(){
   setInterval(()=>{ if(view==='day' && sameDay(viewDate,new Date())) render(); }, 60000);
 }
 init();
+
+/* Supabase se charge en différé (defer) : on l'initialise au 'load' pour ne pas bloquer l'appli locale */
+window.addEventListener('load', ()=>{ initCloud(); if(Cloud.available) resumeSession(); });
+/* Au retour sur l'appli (autre appareil qui a modifié), on récupère la dernière version */
+document.addEventListener('visibilitychange', async ()=>{
+  if(document.hidden || !Cloud.user) return;
+  if(modal||resched||reasonState||settingsOpen||confirmState) return;
+  const r=await pullCloud(); if(r) applyRemote(r);
+});
 
 })();
 </script>
