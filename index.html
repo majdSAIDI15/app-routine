@@ -105,6 +105,8 @@ h1{ font-family:'Fraunces', serif; font-weight:700; font-size:25px; margin:0 0 1
 .subs .sub{ display:flex; align-items:flex-start; gap:8px; font-size:13.5px; padding:3px 0; cursor:pointer; }
 .subs .sub input{ margin-top:2px; width:15px; height:15px; accent-color:var(--sport); cursor:pointer; flex-shrink:0; }
 .subs .sub.done{ color:var(--ink-soft); text-decoration:line-through; }
+.subs .sub .sub-lbl{ flex:1; }
+.subs .sub .sub-time{ font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--ink-soft); margin-left:8px; white-space:nowrap; }
 .state-actions{ display:flex; gap:7px; margin-top:9px; flex-wrap:wrap; }
 .state-actions button{ font-family:'Work Sans',sans-serif; font-size:12px; font-weight:600; cursor:pointer; padding:6px 11px; border-radius:16px; border:1px solid var(--line); background:var(--bg); color:var(--ink); }
 .state-actions button:hover{ border-color:var(--sport); color:var(--sport); }
@@ -138,6 +140,7 @@ h1{ font-family:'Fraunces', serif; font-weight:700; font-size:25px; margin:0 0 1
 .hfill{ width:100%; background:linear-gradient(180deg, var(--etude), #3f8a82); border-radius:5px; }
 .hlbl{ font-family:'IBM Plex Mono',monospace; font-size:9px; text-align:center; color:var(--ink-soft); margin-top:4px; }
 .reason-note{ font-size:12px; color:#C0392B; margin-top:6px; }
+.inst-note{ font-size:12.5px; color:var(--etude); margin-top:6px; white-space:pre-wrap; }
 .rz-title{ font-size:12.5px; font-weight:600; color:var(--ink-soft); margin:24px 0 10px; }
 .rz-sub{ font-size:12px; font-weight:600; margin:14px 0 8px; }
 .rz-row{ display:flex; align-items:center; gap:10px; margin-bottom:8px; }
@@ -193,8 +196,12 @@ h1{ font-family:'Fraunces', serif; font-weight:700; font-size:25px; margin:0 0 1
 .nc-panel input[type=text]{ flex:1; }
 .nc-panel input[type=color], .catrow input[type=color]{ width:46px; height:46px; padding:2px; border:1px solid var(--line); border-radius:10px; background:var(--card); cursor:pointer; flex-shrink:0; }
 .btn-mini{ font-family:'Work Sans',sans-serif; font-size:14px; font-weight:700; cursor:pointer; padding:12px 16px; border-radius:10px; border:1px solid var(--sport); background:var(--sport); color:#fff; flex-shrink:0; }
-.sub-row{ display:flex; gap:8px; align-items:center; margin-bottom:8px; }
-.sub-row .sub-input{ flex:1; }
+.sub-row{ margin-bottom:12px; padding-bottom:10px; border-bottom:1px dashed var(--line); }
+.sub-line1{ display:flex; gap:8px; align-items:center; }
+.sub-line1 .sub-input{ flex:1; }
+.sub-line2{ display:flex; align-items:center; gap:8px; margin-top:7px; }
+.sub-line2 .sub-hint{ font-size:11.5px; color:var(--ink-soft); }
+.sub-line2 input[type=time]{ font-family:'Work Sans',sans-serif; font-size:14px; color:var(--ink); padding:8px 10px; border:1px solid var(--line); border-radius:9px; background:var(--card); }
 .sub-del{ width:40px; height:44px; flex-shrink:0; border:1px solid var(--line); border-radius:10px; background:var(--card); color:var(--ink-soft); cursor:pointer; font-size:14px; }
 .sub-del:hover{ border-color:#C0392B; color:#C0392B; }
 
@@ -298,7 +305,7 @@ function seedTasks(){
 let tasks=[], done={}, ovr={};
 let viewDate=new Date();
 let view='day';                 // 'day' | 'tasks' | 'stats'
-let modal=null, resched=null, settingsOpen=false, confirmState=null, reasonState=null;
+let modal=null, resched=null, settingsOpen=false, confirmState=null, reasonState=null, instState=null;
 const REASONS=['Manque de temps','Fatigue','Oubli','Pas motivé','Imprévu','Remis à plus tard'];
 let customReasons=[];   // raisons ajoutées par l'utilisateur
 function allReasons(){ return REASONS.concat(customReasons); }
@@ -368,17 +375,10 @@ function recurLabel(task){
 
 /* ---------- complétion ---------- */
 function doneKey(id,date){ return id+'::'+ymd(date); }
-function taskDone(task,date){
-  if(task.subtasks && task.subtasks.length) return task.subtasks.every(s=>!!done[doneKey(s.id,date)]);
-  return !!done[doneKey(task.id,date)];
-}
+/* La tâche et ses sous-tâches sont INDÉPENDANTES : cocher l'une ne coche pas l'autre. */
+function taskDone(task,date){ return !!done[doneKey(task.id,date)]; }
 async function toggleTask(task,date){
-  if(task.subtasks && task.subtasks.length){
-    const target=!taskDone(task,date);
-    task.subtasks.forEach(s=>{ const k=doneKey(s.id,date); if(target) done[k]=true; else delete done[k]; });
-  } else {
-    const k=doneKey(task.id,date); if(done[k]) delete done[k]; else done[k]=true;
-  }
+  const k=doneKey(task.id,date); if(done[k]) delete done[k]; else done[k]=true;
   await Store.saveDone(done);
 }
 
@@ -542,24 +542,29 @@ function taskCard(t){
   const timeLabel = t.time ? (em!=null ? `${t.time} – ${fmtHM(em)}` : t.time) : '—';
   const pill=statusPill(st,t,viewDate);
   const cls=['task', checked?'done':'', st==='current'?'current':'', st==='overdue'?'overdue':'', st==='missed'?'missed':'', st==='moved'?'moved':''].join(' ').trim();
-  const hasSubs=t.subtasks&&t.subtasks.length;
-  const subDone=hasSubs?t.subtasks.filter(s=>!!done[doneKey(s.id,viewDate)]).length:0;
-  const partial=hasSubs&&subDone>0&&subDone<t.subtasks.length;
+  const oKey=doneKey(t.id,viewDate);
+  const inst=ovr[oKey]||{};
+  const instSubs=Array.isArray(inst.subtasks)?inst.subtasks:[];
+  const allSubs=[...(t.subtasks||[]), ...instSubs];
+  const hasSubs=allSubs.length>0;
+  const subDone=allSubs.filter(s=>!!done[doneKey(s.id,viewDate)]).length;
   const checkbox= st==='moved' ? `<span style="width:20px;flex-shrink:0"></span>`
-    : `<input type="checkbox" data-toggle="${t.id}" ${checked?'checked':''} ${partial?'data-partial="1"':''}/>`;
+    : `<input type="checkbox" data-toggle="${t.id}" ${checked?'checked':''}/>`;
   const noteHtml=t.note?`<div class="task-note">${escapeHtml(t.note)}</div>`:'';
-  const reason=(ovr[doneKey(t.id,viewDate)]||{}).reason;
+  const instNoteHtml=inst.note?`<div class="inst-note">📌 ${escapeHtml(inst.note)}</div>`:'';
+  const reason=inst.reason;
   const reasonHtml=reason?`<div class="reason-note">💬 ${escapeHtml(reason)}</div>`:'';
-  const subsHtml=(hasSubs&&st!=='moved')?`<div class="subs">${t.subtasks.map(s=>{const sd=!!done[doneKey(s.id,viewDate)];return `<label class="sub ${sd?'done':''}"><input type="checkbox" data-subtoggle="${s.id}" ${sd?'checked':''}> ${escapeHtml(s.label)}</label>`;}).join('')}</div>`:'';
+  const subLabel=(s,pinned)=>{const sd=!!done[doneKey(s.id,viewDate)];const tm=s.time?`<span class="sub-time">${s.time}${s.end?'–'+s.end:''}</span>`:'';return `<label class="sub ${sd?'done':''}"><input type="checkbox" data-subtoggle="${s.id}" ${sd?'checked':''}> <span class="sub-lbl">${pinned?'📌 ':''}${escapeHtml(s.label)}</span>${tm}</label>`;};
+  const subsHtml=(hasSubs&&st!=='moved')?`<div class="subs">${(t.subtasks||[]).map(s=>subLabel(s,false)).join('')}${instSubs.map(s=>subLabel(s,true)).join('')}</div>`:'';
   return `<div class="${cls}" style="border-left-color:${cat.color}">
     ${checkbox}
     <div class="task-main">
       <div class="task-time">${timeLabel}${pill}</div>
-      <div class="task-title">${escapeHtml(t.title)}${hasSubs?`<span class="sub-count">${subDone}/${t.subtasks.length}</span>`:''}</div>
+      <div class="task-title">${escapeHtml(t.title)}${hasSubs?`<span class="sub-count">${subDone}/${allSubs.length}</span>`:''}</div>
       <div class="task-sub"><span class="tag" style="background:${cat.color}">${cat.label}</span><span class="recur">↻ ${recurLabel(t)}</span>${t.makeup?'<span class="makeup-tag">⤷ rattrapage</span>':''}</div>
-      ${noteHtml}${reasonHtml}${subsHtml}${stateActions(st,t,viewDate)}
+      ${noteHtml}${instNoteHtml}${reasonHtml}${subsHtml}${stateActions(st,t,viewDate)}
     </div>
-    <div class="task-actions"><button class="icon-btn" data-edit="${t.id}">✎</button><button class="icon-btn" data-del="${t.id}">🗑</button></div>
+    <div class="task-actions"><button class="icon-btn" data-inst="${t.id}" title="Note / sous-tâches du jour">📌</button><button class="icon-btn" data-edit="${t.id}">✎</button><button class="icon-btn" data-del="${t.id}">🗑</button></div>
   </div>`;
 }
 
@@ -648,8 +653,8 @@ function wire(){
   const dj=document.getElementById('dateJump'); if(dj) dj.addEventListener('change',e=>{ if(e.target.value){ viewDate=parseYmd(e.target.value); render(); }});
   $('[data-jump]').forEach(b=>b.addEventListener('click',()=>{ viewDate=parseYmd(b.getAttribute('data-jump')); view='day'; render(); }));
 
-  $('[data-toggle]').forEach(cb=>{ if(cb.getAttribute('data-partial')) cb.indeterminate=true;
-    cb.addEventListener('change', async e=>{ await toggleTask(tasks.find(x=>x.id===e.target.getAttribute('data-toggle')), viewDate); render(); }); });
+  $('[data-toggle]').forEach(cb=>cb.addEventListener('change', async e=>{ await toggleTask(tasks.find(x=>x.id===e.target.getAttribute('data-toggle')), viewDate); render(); }));
+  $('[data-inst]').forEach(b=>b.addEventListener('click',()=>{ instState={taskId:b.getAttribute('data-inst'), date:new Date(viewDate)}; render(); }));
   $('[data-subtoggle]').forEach(cb=>cb.addEventListener('change', async e=>{ const k=doneKey(e.target.getAttribute('data-subtoggle'),viewDate); if(done[k]) delete done[k]; else done[k]=true; await Store.saveDone(done); render(); }));
   $('[data-edit]').forEach(b=>b.addEventListener('click',()=>{ modal={task:tasks.find(x=>x.id===b.getAttribute('data-edit'))}; render(); }));
   $('[data-del]').forEach(b=>b.addEventListener('click',()=>delTask(b.getAttribute('data-del'))));
@@ -686,6 +691,7 @@ function renderOverlays(){
   const root=document.getElementById('modal-root');
   if(confirmState) return renderConfirm(root);
   if(reasonState) return renderReason(root);
+  if(instState) return renderInst(root);
   if(resched) return renderResched(root);
   if(settingsOpen) return renderSettings(root);
   if(modal) return renderModal(root);
@@ -702,6 +708,53 @@ function renderConfirm(root){
   root.querySelector('#c-yes').addEventListener('click',()=>done(true));
   root.querySelector('#c-no').addEventListener('click',()=>done(false));
   root.querySelector('#c-ov').addEventListener('click',e=>{ if(e.target.id==='c-ov') done(false); });
+}
+
+/* ---------- spécifique au jour (note + sous-tâches d'une seule occurrence) ---------- */
+function renderInst(root){
+  const t=tasks.find(x=>x.id===instState.taskId); if(!t){ instState=null; root.innerHTML=''; return; }
+  const key=doneKey(t.id, instState.date);
+  const o=ovr[key]||{};
+  const subRows=(Array.isArray(o.subtasks)?o.subtasks:[]).map(s=>subRowHtml(s.id,s.label,s.time,s.end)).join('');
+  const hasStuff=o.note||(o.subtasks&&o.subtasks.length);
+  root.innerHTML=`<div class="overlay" id="i-ov"><div class="modal">
+    <h2>Juste ce jour — « ${escapeHtml(t.title)} »</h2>
+    <p style="font-size:13px;color:var(--ink-soft);margin:0 0 14px">Note et sous-tâches valables <b>uniquement le ${fmtShort(ymd(instState.date))}</b> — elles ne se répètent pas les autres jours.</p>
+    <div class="field"><label for="i-note">Note du jour</label><textarea id="i-note" placeholder="Ex. apporter le dossier X">${escapeHtml(o.note||'')}</textarea></div>
+    <div class="field"><label>Sous-tâches du jour</label><div id="iSubList">${subRows}</div><button type="button" class="add-sub-btn" id="iAddSub">＋ Ajouter une sous-tâche</button></div>
+    <div class="modal-actions">
+      ${hasStuff?'<button class="btn btn-danger" id="i-clear">Tout retirer</button>':''}
+      <button class="btn btn-ghost" id="i-cancel">Annuler</button>
+      <button class="btn btn-primary" id="i-save">Enregistrer</button>
+    </div>
+  </div></div>`;
+  const subList=root.querySelector('#iSubList');
+  root.querySelector('#iAddSub').addEventListener('click',()=>{ subList.insertAdjacentHTML('beforeend',subRowHtml('','','','')); const i=subList.querySelectorAll('.sub-input'); i[i.length-1].focus(); });
+  subList.addEventListener('click',e=>{ if(e.target.classList.contains('sub-del')) e.target.closest('.sub-row').remove(); });
+  root.querySelector('#i-ov').addEventListener('click',e=>{ if(e.target.id==='i-ov'){ instState=null; renderOverlays(); }});
+  root.querySelector('#i-cancel').addEventListener('click',()=>{ instState=null; renderOverlays(); });
+  root.querySelector('#i-save').addEventListener('click', saveInst);
+  const ic=root.querySelector('#i-clear'); if(ic) ic.addEventListener('click', clearInst);
+}
+async function saveInst(){
+  const t=tasks.find(x=>x.id===instState.taskId); if(!t){ instState=null; return; }
+  const key=doneKey(t.id, instState.date);
+  const note=document.getElementById('i-note').value.trim()||null;
+  const subtasks=[...document.querySelectorAll('#iSubList .sub-row')].map(row=>{
+    const label=row.querySelector('.sub-input').value.trim(); if(!label) return null;
+    return {id:row.getAttribute('data-subid')||uid(), label, time:row.querySelector('.sub-start').value||null, end:row.querySelector('.sub-end').value||null};
+  }).filter(Boolean);
+  const o=Object.assign({}, ovr[key]);
+  if(note) o.note=note; else delete o.note;
+  if(subtasks.length) o.subtasks=subtasks; else delete o.subtasks;
+  if(Object.keys(o).length) ovr[key]=o; else delete ovr[key];
+  await Store.saveOvr(ovr);
+  instState=null; toast('Enregistré pour ce jour'); render();
+}
+async function clearInst(){
+  const t=tasks.find(x=>x.id===instState.taskId); const key=doneKey(t.id, instState.date);
+  const o=ovr[key]; if(o){ delete o.note; delete o.subtasks; if(!Object.keys(o).length) delete ovr[key]; await Store.saveOvr(ovr); }
+  instState=null; toast('Retiré'); render();
 }
 
 /* ---------- raison (retard / manqué) ---------- */
@@ -840,7 +893,7 @@ function renderModal(root){
   const catOptions=Object.keys(CATS).map(k=>`<option value="${k}" ${editing&&t.category===k?'selected':''}>${CATS[k].label}</option>`).join('');
   const wdSel=r.type==='weekly'?(r.weekdays||[]):[viewDate.getDay()];
   const monthDay=r.type==='monthly'&&!r.last?r.monthDay:viewDate.getDate();
-  const subRows=(editing&&t.subtasks?t.subtasks:[]).map(s=>subRowHtml(s.id,s.label)).join('');
+  const subRows=(editing&&t.subtasks?t.subtasks:[]).map(s=>subRowHtml(s.id,s.label,s.time,s.end)).join('');
   const wdChips=[1,2,3,4,5,6,0].map(i=>`<span><input type="checkbox" class="wd" id="wd${i}" value="${i}" ${wdSel.includes(i)?'checked':''}><label for="wd${i}">${WD_SHORT[i]}</label></span>`).join('');
 
   root.innerHTML=`<div class="overlay" id="overlay"><div class="modal" role="dialog">
@@ -903,7 +956,7 @@ function renderModal(root){
     root.querySelector('#nc-name').value=''; root.querySelector('#newCatPanel').classList.add('hidden'); toast('Catégorie créée');
   });
   const subList=root.querySelector('#subList');
-  root.querySelector('#addSubBtn').addEventListener('click',()=>{ subList.insertAdjacentHTML('beforeend',subRowHtml('','')); const i=subList.querySelectorAll('.sub-input'); i[i.length-1].focus(); });
+  root.querySelector('#addSubBtn').addEventListener('click',()=>{ subList.insertAdjacentHTML('beforeend',subRowHtml('','','','')); const i=subList.querySelectorAll('.sub-input'); i[i.length-1].focus(); });
   subList.addEventListener('click',e=>{ if(e.target.classList.contains('sub-del')) e.target.closest('.sub-row').remove(); });
   root.querySelector('#overlay').addEventListener('click',e=>{ if(e.target.id==='overlay'){ modal=null; render(); }});
   root.querySelector('#m-cancel').addEventListener('click',()=>{ modal=null; render(); });
@@ -927,7 +980,10 @@ async function onSave(){
   if(type==='monthly'){ if(g('f-last').checked) recurrence.last=true; else recurrence.monthDay=Math.min(31,Math.max(1,parseInt(g('f-monthday').value,10)||1)); }
   if(type!=='once'){ const u=g('f-until').value; if(u) recurrence.until=u; }
   const note=g('f-note').value.trim()||null;
-  const subtasks=[...document.querySelectorAll('#subList .sub-row')].map(row=>{ const label=row.querySelector('.sub-input').value.trim(); return label?{id:row.getAttribute('data-subid')||uid(),label}:null; }).filter(Boolean);
+  const subtasks=[...document.querySelectorAll('#subList .sub-row')].map(row=>{
+    const label=row.querySelector('.sub-input').value.trim(); if(!label) return null;
+    return {id:row.getAttribute('data-subid')||uid(), label, time:row.querySelector('.sub-start').value||null, end:row.querySelector('.sub-end').value||null};
+  }).filter(Boolean);
 
   if(editing) Object.assign(modal.task,{title,category,time,end,duration:null,recurrence,note,subtasks});
   else tasks.push({id:uid(),title,category,time,end,duration:null,recurrence,note,subtasks});
@@ -966,7 +1022,10 @@ function toast(msg){
 }
 
 /* ---------- utils ---------- */
-function subRowHtml(id,label){ return `<div class="sub-row" data-subid="${id||''}"><input type="text" class="sub-input" value="${escapeAttr(label||'')}" placeholder="Sous-tâche"><button type="button" class="sub-del" aria-label="Retirer">✕</button></div>`; }
+function subRowHtml(id,label,time,end){ return `<div class="sub-row" data-subid="${id||''}">
+    <div class="sub-line1"><input type="text" class="sub-input" value="${escapeAttr(label||'')}" placeholder="Sous-tâche"><button type="button" class="sub-del" aria-label="Retirer">✕</button></div>
+    <div class="sub-line2"><span class="sub-hint">horaire (option.)</span><input type="time" class="sub-start" value="${time||''}"><span>→</span><input type="time" class="sub-end" value="${end||''}"></div>
+  </div>`; }
 function customCatsObj(){ const o={}; Object.keys(CATS).forEach(k=>{ if(CATS[k].custom) o[k]={label:CATS[k].label,color:CATS[k].color,custom:true}; }); return o; }
 function escapeHtml(s){ return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 function escapeAttr(s){ return (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
@@ -1039,7 +1098,7 @@ window.addEventListener('load', ()=>{ initCloud(); if(Cloud.available) resumeSes
 /* Au retour sur l'appli (autre appareil qui a modifié), on récupère la dernière version */
 document.addEventListener('visibilitychange', async ()=>{
   if(document.hidden || !Cloud.user) return;
-  if(modal||resched||reasonState||settingsOpen||confirmState) return;
+  if(modal||resched||reasonState||instState||settingsOpen||confirmState) return;
   const r=await pullCloud(); if(r) applyRemote(r);
 });
 
