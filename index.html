@@ -149,6 +149,10 @@ h1{ font-family:'Fraunces', serif; font-weight:700; font-size:25px; margin:0 0 1
 .rz-bar i{ display:block; height:100%; background:linear-gradient(90deg,#C0392B,#B08A3E); }
 .rz-n{ font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--ink-soft); }
 .tasklist-mini{ font-size:13.5px; }
+.daynote{ background:#FFFFFF; border-radius:10px; padding:14px 14px 12px; margin:20px 2px 10px; box-shadow:0 4px 14px rgba(38,34,32,0.14); }
+.daynote-label{ font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:#8A8178; margin-bottom:8px; }
+.daynote textarea{ display:block; width:100%; min-height:84px; border:none; resize:vertical; font-family:'Work Sans',sans-serif; font-size:14px; color:#262220; background:transparent; outline:none; line-height:1.5; padding:0; }
+.daynote textarea::placeholder{ color:#B5AEA0; }
 .tasklist-mini div{ display:flex; justify-content:space-between; gap:10px; padding:6px 0; border-bottom:1px dashed var(--line); }
 
 /* ---------- Bottom nav ---------- */
@@ -254,7 +258,7 @@ const DEFAULT_CATS = {
 };
 const CATS = Object.assign({}, JSON.parse(JSON.stringify(DEFAULT_CATS)));
 
-const K={tasks:'todo:tasks', done:'todo:completions', ovr:'todo:overrides', cats:'todo:categories', theme:'todo:theme', reasons:'todo:reasons'};
+const K={tasks:'todo:tasks', done:'todo:completions', ovr:'todo:overrides', cats:'todo:categories', theme:'todo:theme', reasons:'todo:reasons', daynotes:'todo:daynotes'};
 const Store={
   async loadTasks(){ try{return JSON.parse(localStorage.getItem(K.tasks));}catch(e){return null;} },
   async saveTasks(t){ localStorage.setItem(K.tasks, JSON.stringify(t)); scheduleSync(); },
@@ -268,6 +272,8 @@ const Store={
   saveTheme(t){ localStorage.setItem(K.theme, t); },
   async loadReasons(){ try{ const a=JSON.parse(localStorage.getItem(K.reasons)); return Array.isArray(a)?a:[]; }catch(e){ return []; } },
   async saveReasons(a){ localStorage.setItem(K.reasons, JSON.stringify(a)); scheduleSync(); },
+  async loadDayNotes(){ try{return JSON.parse(localStorage.getItem(K.daynotes))||{};}catch(e){return {};} },
+  async saveDayNotes(n){ localStorage.setItem(K.daynotes, JSON.stringify(n)); scheduleSync(); },
 };
 
 /* ---------- données par défaut ---------- */
@@ -302,7 +308,9 @@ function seedTasks(){
 }
 
 /* ---------- état ---------- */
-let tasks=[], done={}, ovr={};
+let tasks=[], done={}, ovr={}, dayNotes={};
+let dayNoteTimer=null;
+function saveDayNoteDebounced(){ clearTimeout(dayNoteTimer); dayNoteTimer=setTimeout(()=>Store.saveDayNotes(dayNotes),500); }
 let viewDate=new Date();
 let view='day';                 // 'day' | 'tasks' | 'stats'
 let modal=null, resched=null, settingsOpen=false, confirmState=null, reasonState=null, instState=null;
@@ -520,7 +528,12 @@ function dayView(){
     });
     if(isToday && !nowPlaced) h+=nowLine(new Date());
   }
+  h+=dayNoteBlock();
   return h+`</div>`;
+}
+function dayNoteBlock(){
+  const txt=dayNotes[ymd(viewDate)]||'';
+  return `<div class="daynote"><div class="daynote-label">📝 Notes du jour</div><textarea id="dayNoteText" placeholder="Un commentaire, une remarque sur cette journée…">${escapeHtml(txt)}</textarea></div>`;
 }
 function nowLine(now){ return `<div class="now-line"><span class="dot"></span><span class="tm">maintenant ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}</span><span class="ln"></span></div>`; }
 function freeLine(gap){ return `<div class="free-line"><span class="ln"></span><span class="tm">⏳ ${fmtDur(gap)} de libre</span><span class="ln"></span></div>`; }
@@ -668,6 +681,13 @@ function wire(){
     sb.addEventListener('input',e=>{ search=e.target.value; render(); });
     if(searchFocus){ sb.focus(); const v=sb.value; sb.value=''; sb.value=v; } }
   $('[data-filter]').forEach(c=>c.addEventListener('click',()=>{ const v=c.getAttribute('data-filter'); filterCat=v||null; render(); }));
+
+  const dn=document.getElementById('dayNoteText');
+  if(dn) dn.addEventListener('input', e=>{
+    const k=ymd(viewDate), v=e.target.value;
+    if(v.trim()) dayNotes[k]=v; else delete dayNotes[k];
+    saveDayNoteDebounced();
+  });
 }
 
 async function delTask(id){
@@ -992,7 +1012,7 @@ async function onSave(){
 
 /* ---------- sauvegarde ---------- */
 function exportData(){
-  const data={version:2, exportedAt:new Date().toISOString(), tasks, done, ovr, cats:customCatsObj(), reasons:customReasons, theme};
+  const data={version:2, exportedAt:new Date().toISOString(), tasks, done, ovr, cats:customCatsObj(), reasons:customReasons, daynotes:dayNotes, theme};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a'); a.href=url; a.download='ma-routine-'+ymd(new Date())+'.json'; a.click();
@@ -1008,8 +1028,9 @@ async function importData(file){
   Object.keys(CATS).forEach(k=>{ if(CATS[k].custom) delete CATS[k]; });
   Object.assign(CATS, d.cats||{});
   customReasons = Array.isArray(d.reasons)?d.reasons:[];
+  dayNotes = (d.daynotes && typeof d.daynotes==='object')?d.daynotes:{};
   if(d.theme) theme=d.theme;
-  await Store.saveTasks(tasks); await Store.saveDone(done); await Store.saveOvr(ovr); await Store.saveCats(customCatsObj()); await Store.saveReasons(customReasons); Store.saveTheme(theme);
+  await Store.saveTasks(tasks); await Store.saveDone(done); await Store.saveOvr(ovr); await Store.saveCats(customCatsObj()); await Store.saveReasons(customReasons); await Store.saveDayNotes(dayNotes); Store.saveTheme(theme);
   toast('Sauvegarde importée'); render();
 }
 
@@ -1041,7 +1062,7 @@ function initCloud(){
   if(Cloud.client || !window.supabase || !SUPA_URL || !SUPA_KEY) return;
   try{ Cloud.client=window.supabase.createClient(SUPA_URL, SUPA_KEY); Cloud.available=true; }catch(e){}
 }
-function stateBlob(){ return {tasks, done, ovr, cats:customCatsObj(), reasons:customReasons}; }
+function stateBlob(){ return {tasks, done, ovr, cats:customCatsObj(), reasons:customReasons, daynotes:dayNotes}; }
 function scheduleSync(){ if(typeof Cloud==='undefined' || !Cloud.user || applyingRemote) return; clearTimeout(syncTimer); syncTimer=setTimeout(pushCloud,700); }
 async function pushCloud(){ if(!Cloud.user) return; try{ await Cloud.client.from('app_state').upsert({user_id:Cloud.user.id, data:stateBlob(), updated_at:new Date().toISOString()}); }catch(e){} }
 async function pullCloud(){ if(!Cloud.user) return null; try{ const {data,error}=await Cloud.client.from('app_state').select('data').eq('user_id',Cloud.user.id).maybeSingle(); if(error) return null; return data?data.data:null; }catch(e){ return null; } }
@@ -1053,7 +1074,8 @@ function applyRemote(d){
   Object.keys(CATS).forEach(k=>{ if(CATS[k].custom) delete CATS[k]; });
   Object.assign(CATS, d.cats||{});
   customReasons=Array.isArray(d.reasons)?d.reasons:[];
-  Store.saveTasks(tasks); Store.saveDone(done); Store.saveOvr(ovr); Store.saveCats(customCatsObj()); Store.saveReasons(customReasons);
+  dayNotes=(d.daynotes && typeof d.daynotes==='object')?d.daynotes:{};
+  Store.saveTasks(tasks); Store.saveDone(done); Store.saveOvr(ovr); Store.saveCats(customCatsObj()); Store.saveReasons(customReasons); Store.saveDayNotes(dayNotes);
   applyingRemote=false;
   render();
 }
@@ -1088,6 +1110,7 @@ async function init(){
   tasks=stored; done=await Store.loadDone(); ovr=await Store.loadOvr();
   Object.assign(CATS, await Store.loadCats());
   customReasons = await Store.loadReasons();
+  dayNotes = await Store.loadDayNotes();
   render();
   setInterval(()=>{ if(view==='day' && sameDay(viewDate,new Date())) render(); }, 60000);
 }
